@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { usePotholes } from '@/hooks/usePotholes';
+import { useYOLODetection } from '@/hooks/useYOLODetection';
 import { toast } from '@/hooks/use-toast';
-import { Camera, Square, Settings, MapPin } from 'lucide-react';
+import { Camera, Square, Settings, MapPin, Download } from 'lucide-react';
 
 interface DetectionBox {
   x: number;
@@ -27,6 +28,7 @@ const LiveCameraFeed = () => {
   });
   const [currentLocation, setCurrentLocation] = useState({ lat: 28.6129, lng: 77.2295 });
   const { createPothole } = usePotholes();
+  const { isModelLoaded, isLoading, loadModel, detectPotholes } = useYOLODetection();
 
   // Simulate GPS tracking
   useEffect(() => {
@@ -42,32 +44,33 @@ const LiveCameraFeed = () => {
     return () => clearInterval(interval);
   }, [isStreaming]);
 
-  // Mock YOLOv8 detection simulation
+  // Real YOLO detection
   useEffect(() => {
-    if (!isStreaming) return;
+    if (!isStreaming || !isModelLoaded || !videoRef.current) return;
 
-    const interval = setInterval(() => {
-      // Simulate random pothole detection
-      if (Math.random() < 0.1) { // 10% chance every 2 seconds
-        const detection: DetectionBox = {
-          x: Math.random() * 400,
-          y: Math.random() * 300 + 100,
-          width: 50 + Math.random() * 100,
-          height: 30 + Math.random() * 60,
-          confidence: 0.7 + Math.random() * 0.3,
-          severity: Math.random() > 0.7 ? 'high' : Math.random() > 0.4 ? 'medium' : 'low'
-        };
+    const interval = setInterval(async () => {
+      try {
+        const newDetections = await detectPotholes(videoRef.current!);
         
-        setDetections(prev => [...prev.slice(-4), detection]);
-        setStats(prev => ({ ...prev, totalDetected: prev.totalDetected + 1 }));
-        
-        // Create pothole in database
-        createDetectedPothole(detection);
+        if (newDetections.length > 0) {
+          setDetections(prev => [...prev.slice(-4), ...newDetections]);
+          setStats(prev => ({ 
+            ...prev, 
+            totalDetected: prev.totalDetected + newDetections.length 
+          }));
+          
+          // Create potholes in database for each detection
+          newDetections.forEach(detection => {
+            createDetectedPothole(detection);
+          });
+        }
+      } catch (error) {
+        console.error('Detection error:', error);
       }
-    }, 2000);
+    }, 3000); // Check every 3 seconds
 
     return () => clearInterval(interval);
-  }, [isStreaming]);
+  }, [isStreaming, isModelLoaded, detectPotholes]);
 
   const createDetectedPothole = async (detection: DetectionBox) => {
     try {
@@ -95,6 +98,11 @@ const LiveCameraFeed = () => {
 
   const startCamera = useCallback(async () => {
     try {
+      // Load YOLO model if not loaded
+      if (!isModelLoaded && !isLoading) {
+        await loadModel();
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { width: 640, height: 480 } 
       });
@@ -106,13 +114,11 @@ const LiveCameraFeed = () => {
     } catch (error) {
       toast({
         title: "Camera Error",
-        description: "Could not access camera. Using simulation mode.",
+        description: "Could not access camera.",
         variant: "destructive"
       });
-      // Start simulation without camera
-      setIsStreaming(true);
     }
-  }, []);
+  }, [isModelLoaded, isLoading, loadModel]);
 
   const stopCamera = useCallback(() => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -203,9 +209,18 @@ const LiveCameraFeed = () => {
           
           <div className="flex gap-2 mt-4">
             {!isStreaming ? (
-              <Button onClick={startCamera} className="flex-1">
-                <Camera className="h-4 w-4 mr-2" />
-                Start Feed
+              <Button onClick={startCamera} disabled={isLoading} className="flex-1">
+                {isLoading ? (
+                  <>
+                    <Download className="h-4 w-4 mr-2 animate-spin" />
+                    Loading AI Model...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-4 w-4 mr-2" />
+                    Start AI Detection
+                  </>
+                )}
               </Button>
             ) : (
               <Button onClick={stopCamera} variant="destructive" className="flex-1">
@@ -214,6 +229,12 @@ const LiveCameraFeed = () => {
               </Button>
             )}
           </div>
+
+          {isModelLoaded && (
+            <div className="mt-2 text-xs text-green-600 text-center">
+              ✓ AI Model Ready for Detection
+            </div>
+          )}
         </CardContent>
       </Card>
 
