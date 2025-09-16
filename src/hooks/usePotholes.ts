@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
-import type { Database } from '@/lib/supabase'
+import { supabase } from '@/integrations/supabase/client'
+import type { Database } from '@/integrations/supabase/types'
 import { toast } from '@/hooks/use-toast'
 
 type Pothole = Database['public']['Tables']['potholes']['Row']
