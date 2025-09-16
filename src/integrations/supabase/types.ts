@@ -14,7 +14,140 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      notifications: {
+        Row: {
+          created_at: string | null
+          id: string
+          message: string
+          pothole_id: string | null
+          read: boolean | null
+          type: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          message: string
+          pothole_id?: string | null
+          read?: boolean | null
+          type: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          message?: string
+          pothole_id?: string | null
+          read?: boolean | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_pothole_id_fkey"
+            columns: ["pothole_id"]
+            isOneToOne: false
+            referencedRelation: "potholes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      potholes: {
+        Row: {
+          created_at: string | null
+          description: string
+          id: string
+          image_url: string | null
+          latitude: number
+          longitude: number
+          reported_at: string
+          severity: string
+          status: string
+          title: string
+          updated_at: string | null
+          vehicle_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description: string
+          id?: string
+          image_url?: string | null
+          latitude: number
+          longitude: number
+          reported_at?: string
+          severity: string
+          status?: string
+          title: string
+          updated_at?: string | null
+          vehicle_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string
+          id?: string
+          image_url?: string | null
+          latitude?: number
+          longitude?: number
+          reported_at?: string
+          severity?: string
+          status?: string
+          title?: string
+          updated_at?: string | null
+          vehicle_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          display_name: string | null
+          id: string
+          role: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id: string
+          role?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      vehicles: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          last_ping: string | null
+          name: string
+          vehicle_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_ping?: string | null
+          name: string
+          vehicle_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_ping?: string | null
+          name?: string
+          vehicle_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
