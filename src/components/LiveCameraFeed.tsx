@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { usePotholes } from '@/hooks/usePotholes';
 import { useYOLODetection } from '@/hooks/useYOLODetection';
 import { toast } from '@/hooks/use-toast';
-import { Camera, Square, Settings, MapPin, Download } from 'lucide-react';
+import { Camera, Square, Settings, MapPin, Download, RotateCcw, Smartphone } from 'lucide-react';
 
 interface DetectionBox {
   x: number;
@@ -27,8 +27,24 @@ const LiveCameraFeed = () => {
     accuracy: 94.2
   });
   const [currentLocation, setCurrentLocation] = useState({ lat: 28.6129, lng: 77.2295 });
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment'); // Default to back camera
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const { createPothole } = usePotholes();
   const { isModelLoaded, isLoading, loadModel, detectPotholes } = useYOLODetection();
+
+  // Get available cameras on component mount
+  useEffect(() => {
+    const getCameras = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === 'videoinput');
+        setAvailableCameras(cameras);
+      } catch (error) {
+        console.error('Error getting cameras:', error);
+      }
+    };
+    getCameras();
+  }, []);
 
   // Simulate GPS tracking
   useEffect(() => {
@@ -103,9 +119,15 @@ const LiveCameraFeed = () => {
         await loadModel();
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { width: 640, height: 480 } 
-      });
+      const constraints = {
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: facingMode
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -114,11 +136,11 @@ const LiveCameraFeed = () => {
     } catch (error) {
       toast({
         title: "Camera Error",
-        description: "Could not access camera.",
+        description: "Could not access camera. Please check permissions.",
         variant: "destructive"
       });
     }
-  }, [isModelLoaded, isLoading, loadModel]);
+  }, [isModelLoaded, isLoading, loadModel, facingMode]);
 
   const stopCamera = useCallback(() => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -129,6 +151,17 @@ const LiveCameraFeed = () => {
     setIsStreaming(false);
     setDetections([]);
   }, []);
+
+  const switchCamera = useCallback(() => {
+    if (isStreaming) {
+      stopCamera();
+      setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+      // Restart camera after a brief delay
+      setTimeout(() => startCamera(), 100);
+    } else {
+      setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    }
+  }, [isStreaming, startCamera, stopCamera]);
 
   // Draw detection boxes on canvas
   useEffect(() => {
@@ -171,9 +204,14 @@ const LiveCameraFeed = () => {
               <Badge variant={isStreaming ? "default" : "secondary"}>
                 {isStreaming ? "Live" : "Offline"}
               </Badge>
-              <Button size="sm" variant="outline">
-                <Settings className="h-4 w-4" />
-              </Button>
+              <Badge variant="outline" className="text-xs">
+                {facingMode === 'environment' ? 'Back' : 'Front'} Camera
+              </Badge>
+              {availableCameras.length > 1 && (
+                <Button size="sm" variant="outline" onClick={switchCamera}>
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -181,7 +219,7 @@ const LiveCameraFeed = () => {
           <div className="relative bg-black rounded-lg overflow-hidden">
             <video
               ref={videoRef}
-              className="w-full h-[360px] object-cover"
+              className="w-full h-[250px] sm:h-[300px] md:h-[360px] lg:h-[400px] object-cover"
               autoPlay
               playsInline
               muted
@@ -189,8 +227,8 @@ const LiveCameraFeed = () => {
             <canvas
               ref={canvasRef}
               className="absolute inset-0 w-full h-full pointer-events-none"
-              width={640}
-              height={480}
+              width={1280}
+              height={720}
             />
             {!isStreaming && (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -207,7 +245,7 @@ const LiveCameraFeed = () => {
             </div>
           </div>
           
-          <div className="flex gap-2 mt-4">
+          <div className="flex flex-col sm:flex-row gap-2 mt-4">
             {!isStreaming ? (
               <Button onClick={startCamera} disabled={isLoading} className="flex-1">
                 {isLoading ? (
@@ -228,6 +266,12 @@ const LiveCameraFeed = () => {
                 Stop Feed
               </Button>
             )}
+            {availableCameras.length > 1 && (
+              <Button onClick={switchCamera} variant="outline" size="sm" className="sm:w-auto">
+                <Smartphone className="h-4 w-4 mr-2" />
+                Switch Camera
+              </Button>
+            )}
           </div>
 
           {isModelLoaded && (
@@ -239,22 +283,22 @@ const LiveCameraFeed = () => {
       </Card>
 
       {/* Detection Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-primary">{stats.totalDetected}</div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xl sm:text-2xl font-bold text-primary">{stats.totalDetected}</div>
             <div className="text-xs text-muted-foreground">Potholes Detected</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-primary">{stats.fps}</div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xl sm:text-2xl font-bold text-primary">{stats.fps}</div>
             <div className="text-xs text-muted-foreground">FPS</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-primary">{stats.accuracy}%</div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xl sm:text-2xl font-bold text-primary">{stats.accuracy}%</div>
             <div className="text-xs text-muted-foreground">Accuracy</div>
           </CardContent>
         </Card>

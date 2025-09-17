@@ -31,13 +31,27 @@ export const useYOLODetection = () => {
     
     setIsLoading(true);
     try {
-      // Using a general object detection model that can detect road damage
-      // This model can detect various objects and we'll filter for road-related issues
-      const detector = await pipeline(
-        'object-detection',
-        'facebook/detr-resnet-50',
-        { device: 'webgpu' }
-      );
+      // Using YOLO model for better object detection
+      let detector;
+      try {
+        // Try WebGPU first
+        detector = await pipeline(
+          'object-detection',
+          'Xenova/yolov9-c',
+          { 
+            device: 'webgpu',
+            dtype: 'fp32'
+          }
+        );
+      } catch (webgpuError) {
+        console.log('WebGPU failed, falling back to CPU:', webgpuError);
+        // Fallback to CPU if WebGPU fails
+        detector = await pipeline(
+          'object-detection',
+          'Xenova/yolov9-c',
+          { device: 'cpu' }
+        );
+      }
       
       pipelineRef.current = detector;
       setIsModelLoaded(true);
@@ -76,19 +90,21 @@ export const useYOLODetection = () => {
       const detections = await pipelineRef.current(blob) as Detection[];
       
       // Filter and convert detections to our format
-      // Look for objects that might indicate road damage
-      const roadDamageLabels = ['pothole', 'crack', 'damage', 'hole', 'road'];
+      // Look for objects that might indicate road damage or anomalies
+      const roadDamageLabels = ['pothole', 'crack', 'damage', 'hole', 'road', 'construction', 'barrier', 'cone'];
       
       return detections
         .filter(detection => {
-          // Filter for relevant labels or high-confidence detections that might be road damage
+          // Filter for relevant labels or unusual objects on roads
           const isRelevant = roadDamageLabels.some(label => 
             detection.label.toLowerCase().includes(label)
           );
-          // Also include any detection with very high confidence that might be an anomaly
-          const isHighConfidenceAnomaly = detection.score > 0.7;
+          // Include any object that appears anomalous on road surfaces
+          const isPossibleRoadAnomaly = ['vehicle', 'car', 'truck', 'person'].every(commonLabel => 
+            !detection.label.toLowerCase().includes(commonLabel)
+          ) && detection.score > 0.6;
           
-          return (isRelevant || isHighConfidenceAnomaly) && detection.score > 0.5;
+          return (isRelevant || isPossibleRoadAnomaly) && detection.score > 0.4;
         })
         .map(detection => {
           const { xmin, ymin, xmax, ymax } = detection.box;

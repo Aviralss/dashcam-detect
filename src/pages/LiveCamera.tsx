@@ -14,21 +14,21 @@ const LiveCamera = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <Navigation />
       
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-4 sm:p-6">
         <div className="max-w-7xl mx-auto">
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold text-foreground">Live Camera</h1>
-            <p className="text-muted-foreground">Real-time pothole detection from vehicle dashcam</p>
+          <div className="mb-4 sm:mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Live Camera</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">Real-time pothole detection from vehicle dashcam</p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6">
             {/* Main Camera Feed */}
-            <div className="lg:col-span-2">
+            <div className="xl:col-span-2">
               <LiveCameraFeed />
             </div>
 
             {/* Sidebar with Alerts */}
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               {/* Recent Detections */}
               <Card>
                 <CardHeader>
@@ -43,7 +43,7 @@ const LiveCamera = () => {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-[400px]">
+                  <ScrollArea className="h-[300px] sm:h-[400px]">
                     <div className="space-y-3">
                       {notifications.slice(0, 20).map((notification) => (
                         <div key={notification.id} className="p-3 border rounded-lg">
