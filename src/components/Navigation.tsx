@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import MobileNavigation from "@/components/MobileNavigation";
 import { 
   MapPin, 
   Upload, 
@@ -35,18 +36,21 @@ const Navigation = () => {
   const userDisplayName = user?.user_metadata?.display_name || user?.email || 'User';
 
   return (
-    <nav className="bg-background border-b border-border px-6 py-4">
+    <nav className="bg-background border-b border-border px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between">
+        {/* Mobile Menu */}
+        <MobileNavigation />
+
         {/* Logo and Brand */}
         <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-smooth">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
             <MapPin className="w-5 h-5 text-primary-foreground" />
           </div>
-          <h1 className="text-xl font-bold text-foreground">PotholeTracker</h1>
+          <h1 className="text-lg sm:text-xl font-bold text-foreground">PotholeTracker</h1>
         </Link>
 
-        {/* Navigation Items */}
-        <div className="flex items-center gap-2">
+        {/* Desktop Navigation Items */}
+        <div className="hidden md:flex items-center gap-2">
           {navItems.map((item) => (
             <Button
               key={item.label}
@@ -56,55 +60,55 @@ const Navigation = () => {
             >
               <Link to={item.path}>
                 {item.icon && <item.icon className="w-4 h-4 mr-2" />}
-                {item.label}
+                <span className="hidden lg:inline">{item.label}</span>
               </Link>
             </Button>
           ))}
         </div>
 
-          {/* User Profile */}
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="w-5 h-5" />
-              <Badge 
-                variant="destructive" 
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full p-0 flex items-center justify-center text-xs"
-              >
-                3
-              </Badge>
-            </Button>
-            
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="flex items-center gap-2">
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback className="bg-primary text-primary-foreground">
-                      <User className="w-4 h-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm font-medium text-foreground">{userDisplayName}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem className="flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/settings" className="flex items-center gap-2 w-full">
-                    <Settings className="w-4 h-4" />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut} className="flex items-center gap-2 text-destructive focus:text-destructive">
-                  <LogOut className="w-4 h-4" />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+        {/* User Profile */}
+        <div className="flex items-center gap-2 sm:gap-4">
+          <Button variant="ghost" size="icon" className="relative hidden sm:flex">
+            <Bell className="w-5 h-5" />
+            <Badge 
+              variant="destructive" 
+              className="absolute -top-1 -right-1 w-5 h-5 rounded-full p-0 flex items-center justify-center text-xs"
+            >
+              3
+            </Badge>
+          </Button>
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="flex items-center gap-2">
+                <Avatar className="w-8 h-8">
+                  <AvatarFallback className="bg-primary text-primary-foreground">
+                    <User className="w-4 h-4" />
+                  </AvatarFallback>
+                </Avatar>
+                <span className="hidden sm:inline text-sm font-medium text-foreground">{userDisplayName}</span>
+                <ChevronDown className="w-4 h-4 hidden sm:inline" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem className="flex items-center gap-2">
+                <User className="w-4 h-4" />
+                Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/settings" className="flex items-center gap-2 w-full">
+                  <Settings className="w-4 h-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="flex items-center gap-2 text-destructive focus:text-destructive">
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </nav>
   );

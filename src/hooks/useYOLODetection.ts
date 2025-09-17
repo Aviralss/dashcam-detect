@@ -31,32 +31,39 @@ export const useYOLODetection = () => {
     
     setIsLoading(true);
     try {
-      // Using YOLO model for better object detection
+      console.log('Loading AI model...');
+      // Use a simpler, more reliable model
       let detector;
       try {
-        // Try WebGPU first
-        detector = await pipeline(
-          'zero-shot-object-detection',
-          'onnx-community/grounding-dino-tiny-ONNX',
-          {
-            device: 'webgpu',
-            dtype: 'fp32'
-          }
+        // Try WebGPU first with a timeout
+        const webgpuPromise = pipeline(
+          'object-detection',
+          'onnx-community/yolov8n-ONNX',
+          { device: 'webgpu' }
         );
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('WebGPU timeout')), 30000)
+        );
+        
+        detector = await Promise.race([webgpuPromise, timeoutPromise]);
+        console.log('Model loaded with WebGPU');
       } catch (webgpuError) {
         console.log('WebGPU failed, falling back to CPU:', webgpuError);
-        // Fallback to CPU if WebGPU fails
+        // Fallback to CPU
         detector = await pipeline(
-          'zero-shot-object-detection',
-          'onnx-community/grounding-dino-tiny-ONNX',
+          'object-detection',
+          'onnx-community/yolov8n-ONNX',
           { device: 'cpu' }
         );
+        console.log('Model loaded with CPU');
       }
       
       pipelineRef.current = detector;
       setIsModelLoaded(true);
+      console.log('AI model ready for detection');
     } catch (error) {
-      console.error('Failed to load YOLO model:', error);
+      console.error('Failed to load AI model:', error);
     } finally {
       setIsLoading(false);
     }
@@ -86,24 +93,23 @@ export const useYOLODetection = () => {
       
       if (!blob) return [];
 
-      // Run zero-shot detection with road damage prompts
-      const candidateLabels = [
-        'pothole',
-        'road crack',
-        'damaged road surface',
-        'asphalt pothole',
-        'sinkhole',
-        'uneven road',
-        'broken asphalt',
-        'manhole cover',
-        'speed bump'
-      ];
-
-      const detections = await pipelineRef.current(blob, candidateLabels, { threshold: 0.25 }) as Detection[];
+      // Run object detection
+      const detections = await pipelineRef.current(blob) as Detection[];
+      console.log(`Found ${detections.length} objects in frame`);
       
-      // Convert detections to our format
+      // Filter for road anomalies and convert to our format
+      const roadAnomalyKeywords = ['pothole', 'hole', 'crack', 'damage', 'bump', 'construction', 'barrier', 'cone'];
+      
       return detections
-        .filter(detection => detection.score > 0.25)
+        .filter(detection => {
+          // Look for unusual objects or potential road damage indicators
+          const label = detection.label.toLowerCase();
+          const isRoadAnomaly = roadAnomalyKeywords.some(keyword => label.includes(keyword));
+          const isUnusualObject = detection.score > 0.6 && 
+            !['person', 'car', 'truck', 'bus', 'motorcycle', 'bicycle'].some(common => label.includes(common));
+          
+          return (isRoadAnomaly || isUnusualObject) && detection.score > 0.3;
+        })
         .map(detection => {
           const { xmin, ymin, xmax, ymax } = detection.box;
           const width = xmax - xmin;

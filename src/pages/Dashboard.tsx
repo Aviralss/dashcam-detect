@@ -14,10 +14,10 @@ const Dashboard = () => {
           <DashboardStats />
         </div>
 
-        <div className="flex-1 flex">
+        <div className="flex-1 flex flex-col lg:flex-row min-h-0">
           {/* Main Map Area */}
-          <div className="flex-1 p-6">
-            <div className="h-full rounded-lg overflow-hidden border border-border shadow-lg">
+          <div className="flex-1 p-4 sm:p-6 min-h-0">
+            <div className="h-full min-h-[400px] lg:min-h-0 rounded-lg overflow-hidden border border-border shadow-lg">
               <PotholeMap />
             </div>
           </div>
