@@ -36,9 +36,9 @@ export const useYOLODetection = () => {
       try {
         // Try WebGPU first
         detector = await pipeline(
-          'object-detection',
-          'Xenova/yolov9-c',
-          { 
+          'zero-shot-object-detection',
+          'onnx-community/grounding-dino-tiny-ONNX',
+          {
             device: 'webgpu',
             dtype: 'fp32'
           }
@@ -47,8 +47,8 @@ export const useYOLODetection = () => {
         console.log('WebGPU failed, falling back to CPU:', webgpuError);
         // Fallback to CPU if WebGPU fails
         detector = await pipeline(
-          'object-detection',
-          'Xenova/yolov9-c',
+          'zero-shot-object-detection',
+          'onnx-community/grounding-dino-tiny-ONNX',
           { device: 'cpu' }
         );
       }
@@ -86,26 +86,24 @@ export const useYOLODetection = () => {
       
       if (!blob) return [];
 
-      // Run detection
-      const detections = await pipelineRef.current(blob) as Detection[];
+      // Run zero-shot detection with road damage prompts
+      const candidateLabels = [
+        'pothole',
+        'road crack',
+        'damaged road surface',
+        'asphalt pothole',
+        'sinkhole',
+        'uneven road',
+        'broken asphalt',
+        'manhole cover',
+        'speed bump'
+      ];
+
+      const detections = await pipelineRef.current(blob, candidateLabels, { threshold: 0.25 }) as Detection[];
       
-      // Filter and convert detections to our format
-      // Look for objects that might indicate road damage or anomalies
-      const roadDamageLabels = ['pothole', 'crack', 'damage', 'hole', 'road', 'construction', 'barrier', 'cone'];
-      
+      // Convert detections to our format
       return detections
-        .filter(detection => {
-          // Filter for relevant labels or unusual objects on roads
-          const isRelevant = roadDamageLabels.some(label => 
-            detection.label.toLowerCase().includes(label)
-          );
-          // Include any object that appears anomalous on road surfaces
-          const isPossibleRoadAnomaly = ['vehicle', 'car', 'truck', 'person'].every(commonLabel => 
-            !detection.label.toLowerCase().includes(commonLabel)
-          ) && detection.score > 0.6;
-          
-          return (isRelevant || isPossibleRoadAnomaly) && detection.score > 0.4;
-        })
+        .filter(detection => detection.score > 0.25)
         .map(detection => {
           const { xmin, ymin, xmax, ymax } = detection.box;
           const width = xmax - xmin;
@@ -116,9 +114,9 @@ export const useYOLODetection = () => {
           const area = width * height;
           const normalizedArea = area / (canvas.width * canvas.height);
           
-          if (detection.score > 0.8 && normalizedArea > 0.01) {
+          if (detection.score > 0.7 && normalizedArea > 0.01) {
             severity = 'high';
-          } else if (detection.score > 0.7 || normalizedArea > 0.005) {
+          } else if (detection.score > 0.5 || normalizedArea > 0.005) {
             severity = 'medium';
           }
           
