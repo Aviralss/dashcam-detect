@@ -35,29 +35,39 @@ export const useYOLODetection = () => {
       // Use a simpler, more reliable model
       let detector;
       try {
-        // Try WebGPU first with a timeout
-        const webgpuPromise = pipeline(
-          'object-detection',
-          'onnx-community/yolov8n-ONNX',
-          { device: 'webgpu' }
-        );
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('WebGPU timeout')), 30000)
-        );
-        
-        detector = await Promise.race([webgpuPromise, timeoutPromise]);
-        console.log('Model loaded with WebGPU');
-      } catch (webgpuError) {
-        console.log('WebGPU failed, falling back to CPU:', webgpuError);
-        // Fallback to CPU
-        detector = await pipeline(
-          'object-detection',
-          'onnx-community/yolov8n-ONNX',
-          { device: 'cpu' }
-        );
-        console.log('Model loaded with CPU');
-      }
+          // Try WebGPU first with a timeout (20s)
+          const webgpuPromise = pipeline(
+            'object-detection',
+            'onnx-community/yolov8n-ONNX',
+            { device: 'webgpu' }
+          );
+
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('WebGPU timeout')), 20000)
+          );
+
+          detector = await Promise.race([webgpuPromise, timeoutPromise]);
+          console.log('Model loaded with WebGPU');
+        } catch (webgpuError) {
+          console.log('WebGPU failed, trying WebAssembly (WASM) backend:', webgpuError);
+          try {
+            detector = await pipeline(
+              'object-detection',
+              'onnx-community/yolov8n-ONNX',
+              { device: 'wasm' as any }
+            );
+            console.log('Model loaded with WebAssembly (WASM)');
+          } catch (wasmError) {
+            console.log('WASM failed, falling back to CPU:', wasmError);
+            // Fallback to CPU
+            detector = await pipeline(
+              'object-detection',
+              'onnx-community/yolov8n-ONNX',
+              { device: 'cpu' }
+            );
+            console.log('Model loaded with CPU');
+          }
+        }
       
       pipelineRef.current = detector;
       setIsModelLoaded(true);
@@ -72,7 +82,7 @@ export const useYOLODetection = () => {
   const detectPotholes = useCallback(async (
     videoElement: HTMLVideoElement
   ): Promise<DetectionBox[]> => {
-    if (!pipelineRef.current || !videoElement) {
+    if (!pipelineRef.current || !videoElement || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
       return [];
     }
 
@@ -99,42 +109,73 @@ export const useYOLODetection = () => {
       
       // Filter for road anomalies and convert to our format
       const roadAnomalyKeywords = ['pothole', 'hole', 'crack', 'damage', 'bump', 'construction', 'barrier', 'cone'];
-      
-      return detections
+
+      // Primary: look for pothole-related keywords or unusual objects
+      const primary = detections
         .filter(detection => {
-          // Look for unusual objects or potential road damage indicators
           const label = detection.label.toLowerCase();
           const isRoadAnomaly = roadAnomalyKeywords.some(keyword => label.includes(keyword));
-          const isUnusualObject = detection.score > 0.6 && 
+          const isUnusualObject = detection.score > 0.6 &&
             !['person', 'car', 'truck', 'bus', 'motorcycle', 'bicycle'].some(common => label.includes(common));
-          
           return (isRoadAnomaly || isUnusualObject) && detection.score > 0.3;
         })
         .map(detection => {
           const { xmin, ymin, xmax, ymax } = detection.box;
           const width = xmax - xmin;
           const height = ymax - ymin;
-          
-          // Determine severity based on size and confidence
+
           let severity: 'low' | 'medium' | 'high' = 'low';
           const area = width * height;
           const normalizedArea = area / (canvas.width * canvas.height);
-          
+
           if (detection.score > 0.7 && normalizedArea > 0.01) {
             severity = 'high';
           } else if (detection.score > 0.5 || normalizedArea > 0.005) {
             severity = 'medium';
           }
-          
+
           return {
             x: xmin,
             y: ymin,
             width,
             height,
             confidence: detection.score,
-            severity
-          };
+            severity,
+          } as DetectionBox;
         });
+
+      if (primary.length > 0) {
+        console.log(`Using ${primary.length} primary anomaly detections`);
+        return primary;
+      }
+
+      // Fallback: if no anomalies found, surface top candidates (exclude obvious people)
+      const fallback = detections
+        .filter(d => d.score > 0.4 && !d.label.toLowerCase().includes('person'))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map(detection => {
+          const { xmin, ymin, xmax, ymax } = detection.box;
+          const width = xmax - xmin;
+          const height = ymax - ymin;
+
+          let severity: 'low' | 'medium' | 'high' = detection.score > 0.8 ? 'medium' : 'low';
+          const area = width * height;
+          const normalizedArea = area / (canvas.width * canvas.height);
+          if (detection.score > 0.85 && normalizedArea > 0.01) severity = 'high';
+
+          return {
+            x: xmin,
+            y: ymin,
+            width,
+            height,
+            confidence: detection.score,
+            severity,
+          } as DetectionBox;
+        });
+
+      console.log(`Primary anomalies not found. Showing ${fallback.length} fallback detections.`);
+      return fallback;
         
     } catch (error) {
       console.error('Detection failed:', error);

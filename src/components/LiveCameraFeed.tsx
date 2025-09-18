@@ -60,32 +60,60 @@ const LiveCameraFeed = () => {
     return () => clearInterval(interval);
   }, [isStreaming]);
 
-  // Real YOLO detection
+  // Real YOLO detection (non-overlapping loop for smoother cadence)
   useEffect(() => {
     if (!isStreaming || !isModelLoaded || !videoRef.current) return;
 
-    const interval = setInterval(async () => {
+    // Keep overlay canvas in sync with video dimensions
+    const syncCanvasSize = () => {
+      if (!videoRef.current || !canvasRef.current) return;
+      const v = videoRef.current;
+      if (v.videoWidth && v.videoHeight) {
+        canvasRef.current.width = v.videoWidth;
+        canvasRef.current.height = v.videoHeight;
+      }
+    };
+    videoRef.current.addEventListener('loadedmetadata', syncCanvasSize);
+    syncCanvasSize();
+
+    let cancelled = false;
+    const cadenceMs = 300; // ~3.3 FPS
+
+    const tick = async () => {
+      if (cancelled || !videoRef.current) return;
       try {
-        const newDetections = await detectPotholes(videoRef.current!);
-        
+        // Ensure we have current video data
+        if (videoRef.current.readyState < 2) {
+          setTimeout(tick, cadenceMs);
+          return;
+        }
+        const newDetections = await detectPotholes(videoRef.current);
         if (newDetections.length > 0) {
           setDetections(prev => [...prev.slice(-4), ...newDetections]);
-          setStats(prev => ({ 
-            ...prev, 
-            totalDetected: prev.totalDetected + newDetections.length 
+          setStats(prev => ({
+            ...prev,
+            totalDetected: prev.totalDetected + newDetections.length,
           }));
-          
-          // Create potholes in database for each detection
           newDetections.forEach(detection => {
             createDetectedPothole(detection);
           });
+        } else {
+          // Clear detections if nothing found to keep overlay fresh
+          setDetections([]);
         }
       } catch (error) {
         console.error('Detection error:', error);
+      } finally {
+        if (!cancelled) setTimeout(tick, cadenceMs);
       }
-    }, 3000); // Check every 3 seconds
+    };
 
-    return () => clearInterval(interval);
+    tick();
+
+    return () => {
+      cancelled = true;
+      videoRef.current?.removeEventListener('loadedmetadata', syncCanvasSize);
+    };
   }, [isStreaming, isModelLoaded, detectPotholes]);
 
   const createDetectedPothole = async (detection: DetectionBox) => {
@@ -165,22 +193,25 @@ const LiveCameraFeed = () => {
 
   // Draw detection boxes on canvas
   useEffect(() => {
-    if (!canvasRef.current || detections.length === 0) return;
+    if (!canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Always clear first
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    if (detections.length === 0) return;
+
     detections.forEach(detection => {
-      const color = detection.severity === 'high' ? '#dc2626' : 
+      const color = detection.severity === 'high' ? '#dc2626' :
                    detection.severity === 'medium' ? '#f59e0b' : '#16a34a';
-      
+
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
-      
+
       // Draw confidence label
       ctx.fillStyle = color;
       ctx.fillRect(detection.x, detection.y - 20, 80, 20);
