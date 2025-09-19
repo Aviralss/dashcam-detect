@@ -27,6 +27,7 @@ const LiveCameraFeed = () => {
     accuracy: 94.2
   });
   const [currentLocation, setCurrentLocation] = useState({ lat: 28.6129, lng: 77.2295 });
+  const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment'); // Default to back camera
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const { createPothole } = usePotholes();
@@ -46,18 +47,63 @@ const LiveCameraFeed = () => {
     getCameras();
   }, []);
 
-  // Simulate GPS tracking
+  // Real GPS tracking
   useEffect(() => {
+    const requestLocation = async () => {
+      try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        setLocationPermission(permission.state);
+        
+        if (permission.state === 'granted') {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              setCurrentLocation({
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              });
+            },
+            (error) => {
+              console.error('Geolocation error:', error);
+              toast({
+                title: "Location Error",
+                description: "Could not get your location. Using default location.",
+                variant: "destructive"
+              });
+            }
+          );
+        }
+      } catch (error) {
+        console.error('Permission check error:', error);
+      }
+    };
+
+    requestLocation();
+
     if (!isStreaming) return;
 
-    const interval = setInterval(() => {
-      setCurrentLocation(prev => ({
-        lat: prev.lat + (Math.random() - 0.5) * 0.001,
-        lng: prev.lng + (Math.random() - 0.5) * 0.001
-      }));
-    }, 5000);
+    // Update location every 5 seconds when streaming
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setCurrentLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        });
+      },
+      (error) => {
+        console.error('Geolocation watch error:', error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 5000
+      }
+    );
 
-    return () => clearInterval(interval);
+    return () => {
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
   }, [isStreaming]);
 
   // Real YOLO detection (non-overlapping loop for smoother cadence)
@@ -142,6 +188,28 @@ const LiveCameraFeed = () => {
 
   const startCamera = useCallback(async () => {
     try {
+      // Request location permission first
+      if (locationPermission !== 'granted') {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            setCurrentLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            });
+            setLocationPermission('granted');
+          },
+          (error) => {
+            console.error('Location permission denied:', error);
+            setLocationPermission('denied');
+            toast({
+              title: "Location Permission Required",
+              description: "Please enable location access for accurate pothole mapping.",
+              variant: "destructive"
+            });
+          }
+        );
+      }
+
       // Load YOLO model if not loaded
       if (!isModelLoaded && !isLoading) {
         await loadModel();
@@ -168,7 +236,7 @@ const LiveCameraFeed = () => {
         variant: "destructive"
       });
     }
-  }, [isModelLoaded, isLoading, loadModel, facingMode]);
+  }, [isModelLoaded, isLoading, loadModel, facingMode, locationPermission]);
 
   const stopCamera = useCallback(() => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -238,6 +306,9 @@ const LiveCameraFeed = () => {
               <Badge variant="outline" className="text-xs">
                 {facingMode === 'environment' ? 'Back' : 'Front'} Camera
               </Badge>
+              <Badge variant={locationPermission === 'granted' ? "default" : "secondary"} className="text-xs">
+                GPS: {locationPermission === 'granted' ? 'On' : 'Off'}
+              </Badge>
               {availableCameras.length > 1 && (
                 <Button size="sm" variant="outline" onClick={switchCamera}>
                   <RotateCcw className="h-4 w-4" />
@@ -301,6 +372,17 @@ const LiveCameraFeed = () => {
               <Button onClick={switchCamera} variant="outline" size="sm" className="sm:w-auto">
                 <Smartphone className="h-4 w-4 mr-2" />
                 Switch Camera
+              </Button>
+            )}
+            {locationPermission !== 'granted' && (
+              <Button 
+                onClick={() => navigator.geolocation.getCurrentPosition(() => setLocationPermission('granted'))}
+                variant="outline" 
+                size="sm" 
+                className="sm:w-auto"
+              >
+                <MapPin className="h-4 w-4 mr-2" />
+                Enable GPS
               </Button>
             )}
           </div>
