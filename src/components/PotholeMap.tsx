@@ -222,16 +222,36 @@ const PotholeMap = () => {
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    map.current = L.map(mapContainer.current).setView([28.6129, 77.2295], 15);
+    // Use setTimeout to ensure container is fully rendered
+    const initializeMap = () => {
+      if (!mapContainer.current) return;
+      
+      map.current = L.map(mapContainer.current, {
+        preferCanvas: true,
+        zoomControl: true
+      }).setView([28.6129, 77.2295], 15);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map.current);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+      }).addTo(map.current);
 
-    // Auto-request location on mount
-    requestLocation();
+      // Force map to recalculate size after initialization
+      setTimeout(() => {
+        if (map.current) {
+          map.current.invalidateSize();
+        }
+      }, 100);
+
+      // Auto-request location on mount
+      requestLocation();
+    };
+
+    // Delay initialization to ensure container dimensions are set
+    const timeoutId = setTimeout(initializeMap, 0);
 
     return () => {
+      clearTimeout(timeoutId);
       if (watchIdRef.current) {
         navigator.geolocation.clearWatch(watchIdRef.current);
       }
@@ -239,6 +259,30 @@ const PotholeMap = () => {
         map.current.remove();
         map.current = null;
       }
+    };
+  }, []);
+
+  // Handle window resize and container size changes
+  useEffect(() => {
+    const handleResize = () => {
+      if (map.current) {
+        setTimeout(() => {
+          map.current?.invalidateSize();
+        }, 100);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    
+    // Also handle when tab content becomes visible
+    const resizeObserver = new ResizeObserver(handleResize);
+    if (mapContainer.current) {
+      resizeObserver.observe(mapContainer.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
   }, []);
 
@@ -296,7 +340,11 @@ const PotholeMap = () => {
 
   return (
     <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full rounded-lg" />
+      <div 
+        ref={mapContainer} 
+        className="w-full h-full rounded-lg" 
+        style={{ minHeight: '400px' }}
+      />
       
       {/* Map Controls Overlay */}
       <div className="absolute top-4 left-4 bg-card/95 backdrop-blur-sm rounded-lg p-3 shadow-lg">
