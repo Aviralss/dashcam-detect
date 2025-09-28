@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { usePotholes } from '@/hooks/usePotholes';
 import { useVehicles } from '@/hooks/useVehicles';
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import {
   PieChart,
   Pie,
@@ -20,7 +21,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { TrendingUp, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
+import { TrendingUp, PieChart as PieChartIcon, BarChart3, RefreshCw } from 'lucide-react';
 
 const SEVERITY_COLORS = {
   high: '#dc2626',
@@ -35,8 +36,20 @@ const STATUS_COLORS = {
 };
 
 const AnalyticalReports = () => {
-  const { potholes } = usePotholes();
-  const { vehicles } = useVehicles();
+  const { potholes, loading: potholesLoading, refetch: refetchPotholes } = usePotholes();
+  const { vehicles, loading: vehiclesLoading, refetch: refetchVehicles } = useVehicles();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetchPotholes(), refetchVehicles()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchPotholes, refetchVehicles]);
+
+  const isLoading = potholesLoading || vehiclesLoading || refreshing;
 
   const analyticsData = useMemo(() => {
     // Severity distribution
@@ -134,9 +147,27 @@ const AnalyticalReports = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2 mb-6">
-        <BarChart3 className="h-6 w-6 text-primary" />
-        <h2 className="text-2xl font-bold">Analytical Reports</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-6 w-6 text-primary" />
+          <h2 className="text-2xl font-bold">Analytical Reports</h2>
+          {isLoading && (
+            <div className="text-sm text-muted-foreground flex items-center gap-1">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              Updating...
+            </div>
+          )}
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex items-center gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh Data
+        </Button>
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
@@ -159,7 +190,7 @@ const AnalyticalReports = () => {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
+                  <PieChart key={`severity-${analyticsData.severityData.length}`}>
                     <Pie
                       data={analyticsData.severityData}
                       cx="50%"
@@ -168,10 +199,12 @@ const AnalyticalReports = () => {
                       fill="#8884d8"
                       dataKey="value"
                       label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      animationBegin={0}
+                      animationDuration={800}
                     >
                       {analyticsData.severityData.map((entry, index) => (
                         <Cell 
-                          key={`cell-${index}`} 
+                          key={`severity-cell-${index}-${entry.value}`} 
                           fill={SEVERITY_COLORS[entry.name.toLowerCase() as keyof typeof SEVERITY_COLORS]} 
                         />
                       ))}
@@ -192,7 +225,7 @@ const AnalyticalReports = () => {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
+                  <PieChart key={`status-${analyticsData.statusData.length}`}>
                     <Pie
                       data={analyticsData.statusData}
                       cx="50%"
@@ -201,10 +234,12 @@ const AnalyticalReports = () => {
                       fill="#8884d8"
                       dataKey="value"
                       label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      animationBegin={0}
+                      animationDuration={800}
                     >
                       {analyticsData.statusData.map((entry, index) => (
                         <Cell 
-                          key={`cell-${index}`} 
+                          key={`status-cell-${index}-${entry.value}`} 
                           fill={STATUS_COLORS[entry.name.toLowerCase() as keyof typeof STATUS_COLORS]} 
                         />
                       ))}
@@ -226,13 +261,21 @@ const AnalyticalReports = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={analyticsData.dailyData}>
+                <AreaChart data={analyticsData.dailyData} key={`daily-${JSON.stringify(analyticsData.dailyData)}`}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="day" />
                   <YAxis />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Area type="monotone" dataKey="detections" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="detections" 
+                    stroke="#3b82f6" 
+                    fill="#3b82f6" 
+                    fillOpacity={0.3}
+                    animationBegin={0}
+                    animationDuration={1000}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -250,14 +293,28 @@ const AnalyticalReports = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={analyticsData.monthlyData}>
+                <LineChart data={analyticsData.monthlyData} key={`monthly-${JSON.stringify(analyticsData.monthlyData)}`}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" />
                   <YAxis />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Line type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={2} />
-                  <Line type="monotone" dataKey="repaired" stroke="#10b981" strokeWidth={2} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="total" 
+                    stroke="#3b82f6" 
+                    strokeWidth={2}
+                    animationBegin={0}
+                    animationDuration={1000}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="repaired" 
+                    stroke="#10b981" 
+                    strokeWidth={2}
+                    animationBegin={200}
+                    animationDuration={1000}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
@@ -270,15 +327,39 @@ const AnalyticalReports = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={analyticsData.monthlyData}>
+                <AreaChart data={analyticsData.monthlyData} key={`severity-trends-${JSON.stringify(analyticsData.monthlyData)}`}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" />
                   <YAxis />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Area type="monotone" dataKey="high" stackId="1" stroke="#dc2626" fill="#dc2626" />
-                  <Area type="monotone" dataKey="medium" stackId="1" stroke="#f59e0b" fill="#f59e0b" />
-                  <Area type="monotone" dataKey="low" stackId="1" stroke="#16a34a" fill="#16a34a" />
+                  <Area 
+                    type="monotone" 
+                    dataKey="high" 
+                    stackId="1" 
+                    stroke="#dc2626" 
+                    fill="#dc2626"
+                    animationBegin={0}
+                    animationDuration={1000}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="medium" 
+                    stackId="1" 
+                    stroke="#f59e0b" 
+                    fill="#f59e0b"
+                    animationBegin={200}
+                    animationDuration={1000}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="low" 
+                    stackId="1" 
+                    stroke="#16a34a" 
+                    fill="#16a34a"
+                    animationBegin={400}
+                    animationDuration={1000}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -293,15 +374,33 @@ const AnalyticalReports = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={analyticsData.dailyData}>
+                <BarChart data={analyticsData.dailyData} key={`distribution-${JSON.stringify(analyticsData.dailyData)}`}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="day" />
                   <YAxis />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Bar dataKey="high" stackId="a" fill="#dc2626" />
-                  <Bar dataKey="medium" stackId="a" fill="#f59e0b" />
-                  <Bar dataKey="low" stackId="a" fill="#16a34a" />
+                  <Bar 
+                    dataKey="high" 
+                    stackId="a" 
+                    fill="#dc2626"
+                    animationBegin={0}
+                    animationDuration={800}
+                  />
+                  <Bar 
+                    dataKey="medium" 
+                    stackId="a" 
+                    fill="#f59e0b"
+                    animationBegin={200}
+                    animationDuration={800}
+                  />
+                  <Bar 
+                    dataKey="low" 
+                    stackId="a" 
+                    fill="#16a34a"
+                    animationBegin={400}
+                    animationDuration={800}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -316,13 +415,18 @@ const AnalyticalReports = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={analyticsData.vehicleData}>
+                <BarChart data={analyticsData.vehicleData} key={`vehicle-${JSON.stringify(analyticsData.vehicleData)}`}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend />
-                  <Bar dataKey="detections" fill="#3b82f6" />
+                  <Bar 
+                    dataKey="detections" 
+                    fill="#3b82f6"
+                    animationBegin={0}
+                    animationDuration={1000}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
