@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload as UploadIcon, Video, Image, X, FileCheck, Eye, EyeOff } from "lucide-react";
+import { Upload as UploadIcon, Video, Image, X, FileCheck, Eye, EyeOff, Play, Pause, RotateCcw } from "lucide-react";
 import { useYOLODetection } from "@/hooks/useYOLODetection";
 
 interface FileUploadProps {
@@ -24,13 +24,23 @@ interface DetectionBox {
   severity: 'low' | 'medium' | 'high';
 }
 
+interface VideoDetection {
+  timestamp: number;
+  detections: DetectionBox[];
+  frameNumber: number;
+}
+
 interface UploadedFile {
   file: File;
   progress: number;
-  status: 'uploading' | 'completed' | 'error';
+  status: 'uploading' | 'processing' | 'completed' | 'error';
   processedImageUrl?: string;
   detections?: DetectionBox[];
+  videoDetections?: VideoDetection[];
   showOriginal?: boolean;
+  processingProgress?: number;
+  totalFrames?: number;
+  processedFrames?: number;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ 
@@ -43,11 +53,12 @@ const FileUpload: React.FC<FileUploadProps> = ({
 }) => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { isModelLoaded, isLoading, loadModel, detectPotholesInImage } = useYOLODetection();
+  const { isModelLoaded, isLoading, loadModel, detectPotholesInImage, detectPotholes } = useYOLODetection();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (accept.includes('image') && !isModelLoaded && !isLoading) {
+    if ((accept.includes('image') || accept.includes('video')) && !isModelLoaded && !isLoading) {
       loadModel();
     }
   }, [accept, isModelLoaded, isLoading, loadModel]);
@@ -135,6 +146,106 @@ const FileUpload: React.FC<FileUploadProps> = ({
     });
   };
 
+  const processVideoWithDetection = async (file: File): Promise<VideoDetection[]> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.crossOrigin = 'anonymous';
+      
+      video.onloadedmetadata = async () => {
+        try {
+          const duration = video.duration;
+          const frameRate = 30; // Assume 30 FPS
+          const totalFrames = Math.floor(duration * frameRate);
+          const frameInterval = Math.max(1, Math.floor(totalFrames / 100)); // Sample ~100 frames max
+          
+          console.log(`Video loaded: ${duration}s, processing every ${frameInterval} frames`);
+          
+          const videoDetections: VideoDetection[] = [];
+          let processedFrames = 0;
+          
+          // Update progress
+          setUploadedFiles(prev => 
+            prev.map(f => 
+              f.file === file 
+                ? { 
+                    ...f, 
+                    status: 'processing',
+                    totalFrames: Math.floor(totalFrames / frameInterval),
+                    processedFrames: 0,
+                    processingProgress: 0
+                  }
+                : f
+            )
+          );
+
+          const processFrame = async (frameNumber: number): Promise<void> => {
+            const timestamp = frameNumber / frameRate;
+            video.currentTime = timestamp;
+            
+            return new Promise((frameResolve) => {
+              video.onseeked = async () => {
+                try {
+                  const detections = await detectPotholes(video);
+                  
+                  if (detections.length > 0) {
+                    videoDetections.push({
+                      timestamp,
+                      detections,
+                      frameNumber
+                    });
+                    console.log(`Frame ${frameNumber}: Found ${detections.length} detections at ${timestamp.toFixed(1)}s`);
+                  }
+                  
+                  processedFrames++;
+                  const progress = (processedFrames / Math.floor(totalFrames / frameInterval)) * 100;
+                  
+                  // Update progress
+                  setUploadedFiles(prev => 
+                    prev.map(f => 
+                      f.file === file 
+                        ? { 
+                            ...f, 
+                            processedFrames,
+                            processingProgress: progress
+                          }
+                        : f
+                    )
+                  );
+                  
+                  frameResolve();
+                } catch (error) {
+                  console.error(`Error processing frame ${frameNumber}:`, error);
+                  frameResolve();
+                }
+              };
+            });
+          };
+
+          // Process frames sequentially
+          for (let frameNumber = 0; frameNumber < totalFrames; frameNumber += frameInterval) {
+            await processFrame(frameNumber);
+          }
+          
+          console.log(`Video processing complete. Found potholes in ${videoDetections.length} frames`);
+          resolve(videoDetections);
+          
+        } catch (error) {
+          console.error('Video processing failed:', error);
+          reject(error);
+        }
+      };
+      
+      video.onerror = (error) => {
+        console.error('Video load error:', error);
+        reject(new Error('Failed to load video'));
+      };
+      
+      video.src = URL.createObjectURL(file);
+      video.load();
+    });
+  };
+
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;
 
@@ -165,8 +276,9 @@ const FileUpload: React.FC<FileUploadProps> = ({
           progress = 100;
           clearInterval(interval);
           
-          // Process image if it's an image file and model is loaded
+          // Process media if model is loaded
           let processedData: { processedImageUrl: string; detections: DetectionBox[] } | undefined;
+          let videoDetections: VideoDetection[] | undefined;
           
           if (file.type.startsWith('image/') && isModelLoaded) {
             try {
@@ -175,6 +287,16 @@ const FileUpload: React.FC<FileUploadProps> = ({
               toast.success(`${file.name} processed successfully! Found ${processedData.detections.length} potential potholes.`);
             } catch (error) {
               console.error('Image processing failed:', error);
+              toast.error(`Failed to process ${file.name} for pothole detection`);
+            }
+          } else if (file.type.startsWith('video/') && isModelLoaded) {
+            try {
+              toast.info(`Processing video ${file.name} for pothole detection...`);
+              videoDetections = await processVideoWithDetection(file);
+              const totalDetections = videoDetections.reduce((sum, vd) => sum + vd.detections.length, 0);
+              toast.success(`${file.name} processed successfully! Found potholes in ${videoDetections.length} frames (${totalDetections} total detections).`);
+            } catch (error) {
+              console.error('Video processing failed:', error);
               toast.error(`Failed to process ${file.name} for pothole detection`);
             }
           }
@@ -187,13 +309,17 @@ const FileUpload: React.FC<FileUploadProps> = ({
                     progress: 100, 
                     status: 'completed',
                     processedImageUrl: processedData?.processedImageUrl,
-                    detections: processedData?.detections || []
+                    detections: processedData?.detections || [],
+                    videoDetections: videoDetections || [],
+                    processingProgress: 100
                   }
                 : f
             )
           );
           
-          if (!processedData && file.type.startsWith('image/')) {
+          if (!processedData && !videoDetections && file.type.startsWith('image/')) {
+            toast.success(`${file.name} uploaded successfully`);
+          } else if (!videoDetections && file.type.startsWith('video/')) {
             toast.success(`${file.name} uploaded successfully`);
           }
         } else {
@@ -207,7 +333,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         }
       }, 200);
     }
-  }, [maxSize, isModelLoaded, detectPotholesInImage, processImageWithDetection]);
+  }, [maxSize, isModelLoaded, detectPotholesInImage, processImageWithDetection, detectPotholes, processVideoWithDetection]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -339,6 +465,17 @@ const FileUpload: React.FC<FileUploadProps> = ({
                   <Progress value={uploadedFile.progress} className="h-2" />
                 )}
                 
+                {uploadedFile.status === 'processing' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span>Processing video for pothole detection...</span>
+                      <span>{uploadedFile.processedFrames || 0} / {uploadedFile.totalFrames || 0} frames</span>
+                    </div>
+                    <Progress value={uploadedFile.processingProgress || 0} className="h-2" />
+                  </div>
+                )}
+                
+                {/* Image Display */}
                 {uploadedFile.status === 'completed' && uploadedFile.file.type.startsWith('image/') && (
                   <div className="mt-3">
                     {uploadedFile.processedImageUrl ? (
@@ -367,12 +504,73 @@ const FileUpload: React.FC<FileUploadProps> = ({
                     )}
                   </div>
                 )}
+
+                {/* Video Display */}
+                {uploadedFile.status === 'completed' && uploadedFile.file.type.startsWith('video/') && (
+                  <div className="mt-3 space-y-3">
+                    <video
+                      ref={videoRef}
+                      src={URL.createObjectURL(uploadedFile.file)}
+                      className="w-full max-w-md mx-auto rounded-md border border-border"
+                      style={{ maxHeight: '300px' }}
+                      controls
+                      muted
+                    />
+                    
+                    {uploadedFile.videoDetections && uploadedFile.videoDetections.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Pothole Detection Results</span>
+                          <span className="text-primary font-medium">
+                            {uploadedFile.videoDetections.length} frames with potholes detected
+                          </span>
+                        </div>
+                        
+                        <div className="bg-muted/20 rounded-lg p-3 max-h-32 overflow-y-auto">
+                          <div className="text-xs font-medium mb-2">Detection Timeline:</div>
+                          <div className="space-y-1">
+                            {uploadedFile.videoDetections.slice(0, 10).map((detection, idx) => (
+                              <div 
+                                key={idx} 
+                                className="flex items-center justify-between text-xs cursor-pointer hover:bg-muted/30 px-2 py-1 rounded"
+                                onClick={() => {
+                                  if (videoRef.current) {
+                                    videoRef.current.currentTime = detection.timestamp;
+                                  }
+                                }}
+                              >
+                                <span>
+                                  {Math.floor(detection.timestamp / 60)}:{(detection.timestamp % 60).toFixed(1).padStart(4, '0')}s
+                                </span>
+                                <span className="text-primary">
+                                  {detection.detections.length} pothole{detection.detections.length !== 1 ? 's' : ''}
+                                </span>
+                              </div>
+                            ))}
+                            {uploadedFile.videoDetections.length > 10 && (
+                              <div className="text-xs text-muted-foreground text-center pt-1">
+                                ... and {uploadedFile.videoDetections.length - 10} more detections
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {(!uploadedFile.videoDetections || uploadedFile.videoDetections.length === 0) && (
+                      <div className="text-center text-xs text-muted-foreground py-2">
+                        {isModelLoaded ? "No potholes detected in this video" : "AI model loading..."}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
         
         <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <video ref={videoRef} style={{ display: 'none' }} crossOrigin="anonymous" muted />
       </CardContent>
     </Card>
   );
