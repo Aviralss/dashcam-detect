@@ -43,7 +43,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
 }) => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { isModelLoaded, isLoading, loadModel, detectPotholes } = useYOLODetection();
+  const { isModelLoaded, isLoading, loadModel, detectPotholesInImage } = useYOLODetection();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -69,88 +69,64 @@ const FileUpload: React.FC<FileUploadProps> = ({
         }
 
         // Set canvas size to image size
-        canvas.width = img.width;
-        canvas.height = img.height;
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
 
         // Draw original image
         ctx.drawImage(img, 0, 0);
 
         try {
-          // Create a video element for YOLO detection (hack to reuse existing detection)
-          const video = document.createElement('video');
-          video.width = img.width;
-          video.height = img.height;
+          console.log('Starting pothole detection on image...');
           
-          // Create a temporary canvas to convert image to video frame
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = img.width;
-          tempCanvas.height = img.height;
-          const tempCtx = tempCanvas.getContext('2d')!;
-          tempCtx.drawImage(img, 0, 0);
+          // Use the dedicated image detection function
+          const detections = await detectPotholesInImage(img);
+          console.log(`Detection complete. Found ${detections.length} potential potholes`);
+          
+          // Draw detection boxes on the canvas
+          detections.forEach(detection => {
+            const color = detection.severity === 'high' ? '#ef4444' : 
+                          detection.severity === 'medium' ? '#f97316' : '#22c55e';
+            
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color + '20';
+            ctx.lineWidth = 3;
+            
+            // Draw rectangle
+            ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
+            ctx.fillRect(detection.x, detection.y, detection.width, detection.height);
+            
+            // Draw label
+            ctx.fillStyle = color;
+            ctx.font = '14px Arial';
+            const label = `Pothole (${Math.round(detection.confidence * 100)}%)`;
+            const labelWidth = ctx.measureText(label).width;
+            
+            ctx.fillRect(detection.x, detection.y - 20, labelWidth + 8, 20);
+            ctx.fillStyle = 'white';
+            ctx.fillText(label, detection.x + 4, detection.y - 6);
+          });
 
-          // Convert canvas to blob and create object URL
-          tempCanvas.toBlob(async (blob) => {
-            if (blob) {
-              const videoUrl = URL.createObjectURL(blob);
-              video.src = videoUrl;
-              video.muted = true;
-              
-              video.onloadeddata = async () => {
-                try {
-                  const detections = await detectPotholes(video);
-                  
-                  // Draw detection boxes on the canvas
-                  detections.forEach(detection => {
-                    const color = detection.severity === 'high' ? '#ef4444' : 
-                                  detection.severity === 'medium' ? '#f97316' : '#22c55e';
-                    
-                    ctx.strokeStyle = color;
-                    ctx.fillStyle = color + '20';
-                    ctx.lineWidth = 3;
-                    
-                    // Draw rectangle
-                    ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
-                    ctx.fillRect(detection.x, detection.y, detection.width, detection.height);
-                    
-                    // Draw label
-                    ctx.fillStyle = color;
-                    ctx.font = '14px Arial';
-                    const label = `Pothole (${Math.round(detection.confidence * 100)}%)`;
-                    const labelWidth = ctx.measureText(label).width;
-                    
-                    ctx.fillRect(detection.x, detection.y - 20, labelWidth + 8, 20);
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(label, detection.x + 4, detection.y - 6);
-                  });
-
-                  // Convert canvas to blob URL
-                  canvas.toBlob((processedBlob) => {
-                    if (processedBlob) {
-                      const processedImageUrl = URL.createObjectURL(processedBlob);
-                      resolve({ processedImageUrl, detections });
-                    } else {
-                      reject(new Error('Failed to create processed image'));
-                    }
-                  });
-                  
-                  URL.revokeObjectURL(videoUrl);
-                } catch (error) {
-                  console.error('Detection failed:', error);
-                  // Return original image if detection fails
-                  canvas.toBlob((processedBlob) => {
-                    if (processedBlob) {
-                      const processedImageUrl = URL.createObjectURL(processedBlob);
-                      resolve({ processedImageUrl, detections: [] });
-                    } else {
-                      reject(new Error('Failed to create processed image'));
-                    }
-                  });
-                }
-              };
+          // Convert canvas to blob URL
+          canvas.toBlob((processedBlob) => {
+            if (processedBlob) {
+              const processedImageUrl = URL.createObjectURL(processedBlob);
+              resolve({ processedImageUrl, detections });
+            } else {
+              reject(new Error('Failed to create processed image'));
             }
           });
+          
         } catch (error) {
-          reject(error);
+          console.error('Detection failed:', error);
+          // Return original image if detection fails
+          canvas.toBlob((processedBlob) => {
+            if (processedBlob) {
+              const processedImageUrl = URL.createObjectURL(processedBlob);
+              resolve({ processedImageUrl, detections: [] });
+            } else {
+              reject(new Error('Failed to create processed image'));
+            }
+          });
         }
       };
       
@@ -231,7 +207,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         }
       }, 200);
     }
-  }, [maxSize, isModelLoaded, detectPotholes, processImageWithDetection]);
+  }, [maxSize, isModelLoaded, detectPotholesInImage, processImageWithDetection]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

@@ -103,6 +103,57 @@ export const useYOLODetection = () => {
       
       if (!blob) return [];
 
+      return await processDetection(blob, canvas.width, canvas.height);
+        
+    } catch (error) {
+      console.error('Detection failed:', error);
+      return [];
+    }
+  }, []);
+
+  const detectPotholesInImage = useCallback(async (
+    imageElement: HTMLImageElement
+  ): Promise<DetectionBox[]> => {
+    if (!pipelineRef.current) {
+      console.error('Model not loaded');
+      return [];
+    }
+
+    try {
+      console.log('Processing image for pothole detection...');
+      
+      // Create canvas to capture image
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      canvas.width = imageElement.naturalWidth || imageElement.width;
+      canvas.height = imageElement.naturalHeight || imageElement.height;
+      
+      // Draw image to canvas
+      ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to blob for model input
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob(resolve as any, 'image/jpeg', 0.8);
+      });
+      
+      if (!blob) return [];
+
+      return await processDetection(blob, canvas.width, canvas.height);
+        
+    } catch (error) {
+      console.error('Image detection failed:', error);
+      return [];
+    }
+  }, []);
+
+  const processDetection = useCallback(async (
+    blob: Blob, 
+    width: number, 
+    height: number
+  ): Promise<DetectionBox[]> => {
+    if (!pipelineRef.current) return [];
+
+    try {
       // Run object detection
       const detections = await pipelineRef.current(blob) as Detection[];
       console.log(`Found ${detections.length} objects in frame`);
@@ -130,12 +181,12 @@ export const useYOLODetection = () => {
         })
         .map(detection => {
           const { xmin, ymin, xmax, ymax } = detection.box;
-          const width = xmax - xmin;
-          const height = ymax - ymin;
+          const detectionWidth = xmax - xmin;
+          const detectionHeight = ymax - ymin;
 
           let severity: 'low' | 'medium' | 'high' = 'low';
-          const area = width * height;
-          const normalizedArea = area / (canvas.width * canvas.height);
+          const area = detectionWidth * detectionHeight;
+          const normalizedArea = area / (width * height);
 
           if (detection.score > 0.7 && normalizedArea > 0.01) {
             severity = 'high';
@@ -146,8 +197,8 @@ export const useYOLODetection = () => {
           return {
             x: xmin,
             y: ymin,
-            width,
-            height,
+            width: detectionWidth,
+            height: detectionHeight,
             confidence: detection.score,
             severity,
           } as DetectionBox;
@@ -169,19 +220,19 @@ export const useYOLODetection = () => {
         .slice(0, 5)
         .map(detection => {
           const { xmin, ymin, xmax, ymax } = detection.box;
-          const width = xmax - xmin;
-          const height = ymax - ymin;
+          const detectionWidth = xmax - xmin;
+          const detectionHeight = ymax - ymin;
 
           let severity: 'low' | 'medium' | 'high' = detection.score > 0.8 ? 'medium' : 'low';
-          const area = width * height;
-          const normalizedArea = area / (canvas.width * canvas.height);
+          const area = detectionWidth * detectionHeight;
+          const normalizedArea = area / (width * height);
           if (detection.score > 0.85 && normalizedArea > 0.01) severity = 'high';
 
           return {
             x: xmin,
             y: ymin,
-            width,
-            height,
+            width: detectionWidth,
+            height: detectionHeight,
             confidence: detection.score,
             severity,
           } as DetectionBox;
@@ -189,9 +240,8 @@ export const useYOLODetection = () => {
 
       console.log(`Primary anomalies not found. Showing ${fallback.length} fallback detections.`);
       return fallback;
-        
     } catch (error) {
-      console.error('Detection failed:', error);
+      console.error('Detection processing failed:', error);
       return [];
     }
   }, []);
@@ -200,6 +250,7 @@ export const useYOLODetection = () => {
     isModelLoaded,
     isLoading,
     loadModel,
-    detectPotholes
+    detectPotholes,
+    detectPotholesInImage
   };
 };
