@@ -179,7 +179,24 @@ const LiveCameraFeed = () => {
 
   // Real YOLO detection with improved synchronization (disabled in simulation mode)
   useEffect(() => {
-    if (!isStreaming || !isModelLoaded || !videoRef.current || simulationMode) return;
+    console.log('Detection useEffect triggered:', {
+      isStreaming,
+      isModelLoaded,
+      hasVideo: !!videoRef.current,
+      simulationMode
+    });
+    
+    if (!isStreaming || !isModelLoaded || !videoRef.current || simulationMode) {
+      console.log('Detection loop not starting due to conditions:', {
+        isStreaming,
+        isModelLoaded,
+        hasVideo: !!videoRef.current,
+        simulationMode
+      });
+      return;
+    }
+
+    console.log('Starting real-time detection loop...');
 
     // Keep overlay canvas in sync with video dimensions
     const syncCanvasSize = () => {
@@ -209,11 +226,15 @@ const LiveCameraFeed = () => {
     const cadenceMs = 200; // Faster detection at ~5 FPS
 
     const tick = async () => {
-      if (cancelled || !videoRef.current || !canvasRef.current) return;
+      if (cancelled || !videoRef.current || !canvasRef.current) {
+        console.log('Detection tick cancelled or missing refs');
+        return;
+      }
       
       try {
         // Ensure we have current video data
         if (videoRef.current.readyState < 2) {
+          console.log('Video not ready, retrying...');
           setTimeout(tick, cadenceMs);
           return;
         }
@@ -221,6 +242,7 @@ const LiveCameraFeed = () => {
         // Sync canvas size before detection
         syncCanvasSize();
         
+        console.log('Running YOLO detection...');
         const newDetections = await detectPotholes(videoRef.current);
         console.log(`Detection cycle: found ${newDetections.length} objects`);
         
@@ -252,13 +274,14 @@ const LiveCameraFeed = () => {
     tick();
 
     return () => {
+      console.log('Cleaning up detection loop');
       cancelled = true;
       if (videoRef.current) {
         videoRef.current.removeEventListener('loadedmetadata', syncCanvasSize);
         videoRef.current.removeEventListener('resize', syncCanvasSize);
       }
     };
-  }, [isStreaming, isModelLoaded, detectPotholes]);
+  }, [isStreaming, isModelLoaded, detectPotholes, simulationMode]);
 
   const createDetectedPothole = async (detection: DetectionBox) => {
     try {
@@ -286,6 +309,8 @@ const LiveCameraFeed = () => {
 
   const startCamera = useCallback(async () => {
     try {
+      console.log('Starting camera with simulationMode:', simulationMode);
+      
       // Request location permission first
       if (locationPermission !== 'granted') {
         navigator.geolocation.getCurrentPosition(
@@ -310,7 +335,9 @@ const LiveCameraFeed = () => {
 
       // Load YOLO model only if not in simulation mode
       if (!simulationMode && !isModelLoaded && !isLoading) {
+        console.log('Loading YOLO model for live detection...');
         await loadModel();
+        console.log('YOLO model loaded:', isModelLoaded);
       }
 
       const constraints = {
@@ -326,8 +353,10 @@ const LiveCameraFeed = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsStreaming(true);
+        console.log('Camera stream started');
       }
     } catch (error) {
+      console.error('Camera start error:', error);
       toast({
         title: "Camera Error",
         description: "Could not access camera. Please check permissions.",
