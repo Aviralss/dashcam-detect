@@ -15,19 +15,13 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const baseName = (() => {
-  const base = (import.meta as any).env?.BASE_URL || "/";
-  const normalized = base !== "/" && base.endsWith("/") ? base.slice(0, -1) : base;
-  return window.location.pathname.startsWith(normalized) ? normalized : "/";
-})();
-
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter basename={baseName}>
+        <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={
