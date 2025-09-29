@@ -14,7 +14,113 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          pothole_id: string | null
+          read: boolean
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          pothole_id?: string | null
+          read?: boolean
+          type?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          pothole_id?: string | null
+          read?: boolean
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_pothole_id_fkey"
+            columns: ["pothole_id"]
+            isOneToOne: false
+            referencedRelation: "potholes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      potholes: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string | null
+          latitude: number
+          longitude: number
+          reported_at: string | null
+          severity: string
+          status: string
+          title: string
+          updated_at: string
+          vehicle_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          latitude: number
+          longitude: number
+          reported_at?: string | null
+          severity: string
+          status?: string
+          title: string
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          latitude?: number
+          longitude?: number
+          reported_at?: string | null
+          severity?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          vehicle_id?: string | null
+        }
+        Relationships: []
+      }
+      vehicles: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          last_ping: string | null
+          name: string
+          vehicle_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_ping?: string | null
+          name: string
+          vehicle_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_ping?: string | null
+          name?: string
+          vehicle_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
