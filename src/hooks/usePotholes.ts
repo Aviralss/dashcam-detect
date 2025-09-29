@@ -1,9 +1,21 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/integrations/supabase/client'
-import type { Database } from '@/integrations/supabase/types'
 import { toast } from '@/hooks/use-toast'
 
-type Pothole = Database['public']['Tables']['potholes']['Row']
+type Pothole = {
+  id: string
+  latitude: number
+  longitude: number
+  severity: string
+  title: string
+  description: string | null
+  image_url: string | null
+  vehicle_id: string | null
+  status: string
+  reported_at: string | null
+  created_at: string
+  updated_at: string
+}
 
 export const usePotholes = () => {
   const [potholes, setPotholes] = useState<Pothole[]>([])
@@ -54,7 +66,7 @@ export const usePotholes = () => {
     }
   }
 
-  const createPothole = async (pothole: Database['public']['Tables']['potholes']['Insert']) => {
+  const createPothole = async (pothole: Omit<Pothole, 'id' | 'created_at' | 'updated_at'>) => {
     try {
       const { data, error } = await supabase
         .from('potholes')
@@ -75,7 +87,7 @@ export const usePotholes = () => {
     }
   }
 
-  const updatePothole = async (id: string, updates: Database['public']['Tables']['potholes']['Update']) => {
+  const updatePothole = async (id: string, updates: Partial<Pothole>) => {
     try {
       const { data, error } = await supabase
         .from('potholes')

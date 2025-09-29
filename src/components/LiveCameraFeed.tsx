@@ -294,7 +294,9 @@ const LiveCameraFeed = () => {
         severity,
         title: `Pothole detected via live camera`,
         description: `AI detected pothole with ${(detection.confidence * 100).toFixed(1)}% confidence`,
+        image_url: null,
         vehicle_id: 'DASHCAM-001',
+        status: 'detected',
         reported_at: new Date().toISOString()
       });
 
