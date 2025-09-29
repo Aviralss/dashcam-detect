@@ -21,7 +21,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename="/dashcam-detect">
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={
