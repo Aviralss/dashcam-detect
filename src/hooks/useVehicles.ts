@@ -1,14 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/integrations/supabase/client'
+import type { Database } from '@/integrations/supabase/types'
 
-type Vehicle = {
-  id: string
-  vehicle_id: string
-  name: string
-  is_active: boolean
-  last_ping: string | null
-  created_at: string
-}
+type Vehicle = Database['public']['Tables']['vehicles']['Row']
 
 export const useVehicles = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])

@@ -95,20 +95,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        let title = "Sign in failed";
-        let description = error.message;
-        
-        // Handle specific error cases with more helpful messages
-        if (error.message.toLowerCase().includes('email not confirmed')) {
-          title = "Email not confirmed";
-          description = "Please check your email and click the confirmation link before signing in. If you can't find the email, check your spam folder.";
-        } else if (error.message.toLowerCase().includes('invalid login credentials')) {
-          description = "Invalid email or password. Please check your credentials and try again.";
-        }
-        
         toast({
-          title,
-          description,
+          title: "Sign in failed",
+          description: error.message,
           variant: "destructive"
         });
       }
