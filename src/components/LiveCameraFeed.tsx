@@ -4,8 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { usePotholes } from '@/hooks/usePotholes';
 import { useYOLODetection } from '@/hooks/useYOLODetection';
+import { useCustomYOLO } from '@/hooks/useCustomYOLO';
 import { toast } from '@/hooks/use-toast';
 import { Camera, Square, Settings, MapPin, Download, RotateCcw, Smartphone } from 'lucide-react';
+import { ModelConfig } from './ModelConfig';
 
 interface DetectionBox {
   x: number;
@@ -28,9 +30,16 @@ const LiveCameraFeed = () => {
   });
   const [currentLocation, setCurrentLocation] = useState({ lat: 28.6129, lng: 77.2295 });
   const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment'); // Default to back camera
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const [simulationMode, setSimulationMode] = useState(false);
+  const [showModelConfig, setShowModelConfig] = useState(false);
+  const [modelConfig, setModelConfig] = useState<{
+    modelType: 'roboflow' | 'huggingface' | 'custom' | 'browser';
+    modelEndpoint?: string;
+    apiKey?: string;
+  }>({ modelType: 'browser' });
+  
   const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // Generate random detections for simulation mode
   const generateRandomDetections = useCallback(() => {
@@ -103,6 +112,25 @@ const LiveCameraFeed = () => {
 
   const { createPothole } = usePotholes();
   const { isModelLoaded, isLoading, loadModel, detectPotholes } = useYOLODetection();
+  
+  // Only initialize custom YOLO if not using browser model
+  const customYOLOConfig = modelConfig.modelType !== 'browser' 
+    ? { 
+        modelType: modelConfig.modelType as 'roboflow' | 'huggingface' | 'custom',
+        modelEndpoint: modelConfig.modelEndpoint,
+        apiKey: modelConfig.apiKey
+      }
+    : null;
+  const customYOLO = useCustomYOLO(customYOLOConfig || { modelType: 'roboflow' });
+  
+  const handleModelConfigSave = (config: typeof modelConfig) => {
+    setModelConfig(config);
+    setShowModelConfig(false);
+    toast({
+      title: "Model Configuration Saved",
+      description: `Using ${config.modelType} model for detection`,
+    });
+  };
 
   // Get available cameras on component mount
   useEffect(() => {
@@ -179,20 +207,21 @@ const LiveCameraFeed = () => {
 
   // Real YOLO detection with improved synchronization (disabled in simulation mode)
   useEffect(() => {
+    const usingCustomModel = modelConfig.modelType !== 'browser';
+    const canStartDetection = isStreaming && videoRef.current && !simulationMode &&
+      (usingCustomModel || isModelLoaded);
+    
     console.log('Detection useEffect triggered:', {
       isStreaming,
       isModelLoaded,
       hasVideo: !!videoRef.current,
-      simulationMode
+      simulationMode,
+      usingCustomModel,
+      canStartDetection
     });
     
-    if (!isStreaming || !isModelLoaded || !videoRef.current || simulationMode) {
-      console.log('Detection loop not starting due to conditions:', {
-        isStreaming,
-        isModelLoaded,
-        hasVideo: !!videoRef.current,
-        simulationMode
-      });
+    if (!canStartDetection) {
+      console.log('Detection loop not starting due to conditions');
       return;
     }
 
@@ -242,8 +271,12 @@ const LiveCameraFeed = () => {
         // Sync canvas size before detection
         syncCanvasSize();
         
-        console.log('Running YOLO detection...');
-        const newDetections = await detectPotholes(videoRef.current);
+        console.log('Running detection...');
+        // Use custom model or browser model based on configuration
+        const newDetections = modelConfig.modelType === 'browser'
+          ? await detectPotholes(videoRef.current)
+          : await customYOLO.detectObjects(videoRef.current);
+          
         console.log(`Detection cycle: found ${newDetections.length} objects`);
         
         if (newDetections.length > 0) {
@@ -281,7 +314,7 @@ const LiveCameraFeed = () => {
         videoRef.current.removeEventListener('resize', syncCanvasSize);
       }
     };
-  }, [isStreaming, isModelLoaded, detectPotholes, simulationMode]);
+  }, [isStreaming, isModelLoaded, detectPotholes, simulationMode, modelConfig.modelType, customYOLO]);
 
   const createDetectedPothole = async (detection: DetectionBox) => {
     try {
@@ -557,11 +590,28 @@ const LiveCameraFeed = () => {
                 Enable GPS
               </Button>
             )}
+            
+            {/* Model Configuration Button */}
+            <Button 
+              onClick={() => setShowModelConfig(!showModelConfig)}
+              variant="outline" 
+              size="sm" 
+              className="sm:w-auto"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Model Config
+            </Button>
           </div>
 
-          {!simulationMode && isModelLoaded && (
+          {!simulationMode && modelConfig.modelType === 'browser' && isModelLoaded && (
             <div className="mt-2 text-xs text-green-600 text-center">
-              ✓ AI Model Ready for Detection
+              ✓ Browser AI Model Ready for Detection
+            </div>
+          )}
+          
+          {!simulationMode && modelConfig.modelType !== 'browser' && (
+            <div className="mt-2 text-xs text-blue-600 text-center">
+              🚀 Using Custom {modelConfig.modelType.charAt(0).toUpperCase() + modelConfig.modelType.slice(1)} Model
             </div>
           )}
           
@@ -594,6 +644,16 @@ const LiveCameraFeed = () => {
           </CardContent>
         </Card>
       </div>
+      
+      {/* Model Configuration Modal */}
+      {showModelConfig && (
+        <div className="mt-6">
+          <ModelConfig 
+            onSave={handleModelConfigSave}
+            currentConfig={modelConfig}
+          />
+        </div>
+      )}
     </div>
   );
 };
