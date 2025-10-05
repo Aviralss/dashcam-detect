@@ -1,4 +1,1 @@
 project_id = "lvnswbnrdoexkwpxusyl"
-
-[functions.yolo-detection]
-verify_jwt = false
