@@ -3,9 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { usePotholes } from '@/hooks/usePotholes';
-import { useYOLODetection } from '@/hooks/useYOLODetection';
+import { useRoboflowDetection } from '@/hooks/useRoboflowDetection';
 import { toast } from '@/hooks/use-toast';
-import { Camera, Square, Settings, MapPin, Download, RotateCcw, Smartphone } from 'lucide-react';
+import { Camera, Square, Settings, MapPin, RotateCcw, Smartphone } from 'lucide-react';
+import RoboflowConfig from './RoboflowConfig';
 
 interface DetectionBox {
   x: number;
@@ -28,81 +29,12 @@ const LiveCameraFeed = () => {
   });
   const [currentLocation, setCurrentLocation] = useState({ lat: 28.6129, lng: 77.2295 });
   const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
-  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment'); // Default to back camera
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
-  const [simulationMode, setSimulationMode] = useState(false);
-  const simulationIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  // Generate random detections for simulation mode
-  const generateRandomDetections = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return [];
-    
-    const canvas = canvasRef.current;
-    const numDetections = Math.floor(Math.random() * 4) + 1; // 1-4 detections
-    const detections: DetectionBox[] = [];
-    
-    for (let i = 0; i < numDetections; i++) {
-      const width = Math.random() * 100 + 50; // 50-150px wide
-      const height = Math.random() * 80 + 40;  // 40-120px tall
-      const x = Math.random() * (canvas.width - width);
-      const y = Math.random() * (canvas.height - height);
-      
-      const severities: Array<'low' | 'medium' | 'high'> = ['low', 'medium', 'high'];
-      const severity = severities[Math.floor(Math.random() * severities.length)];
-      const confidence = Math.random() * 0.4 + 0.6; // 0.6-1.0 confidence
-      
-      detections.push({
-        x,
-        y,
-        width,
-        height,
-        confidence,
-        severity
-      });
-    }
-    
-    return detections;
-  }, []);
-
-  // Simulation loop
-  useEffect(() => {
-    if (!simulationMode || !isStreaming) {
-      if (simulationIntervalRef.current) {
-        clearInterval(simulationIntervalRef.current);
-        simulationIntervalRef.current = null;
-      }
-      return;
-    }
-
-    // Start simulation
-    const runSimulation = () => {
-      const newDetections = generateRandomDetections();
-      if (newDetections.length > 0) {
-        setDetections(newDetections);
-        setStats(prev => ({
-          ...prev,
-          totalDetected: prev.totalDetected + newDetections.length,
-        }));
-        
-        // Create pothole records for some detections
-        if (Math.random() > 0.7) { // 30% chance to create a pothole record
-          const randomDetection = newDetections[Math.floor(Math.random() * newDetections.length)];
-          createDetectedPothole(randomDetection);
-        }
-      }
-    };
-
-    simulationIntervalRef.current = setInterval(runSimulation, 2000); // Every 2 seconds
-    
-    return () => {
-      if (simulationIntervalRef.current) {
-        clearInterval(simulationIntervalRef.current);
-        simulationIntervalRef.current = null;
-      }
-    };
-  }, [simulationMode, isStreaming, generateRandomDetections]);
+  const [showConfig, setShowConfig] = useState(false);
 
   const { createPothole } = usePotholes();
-  const { isModelLoaded, isLoading, loadModel, detectPotholes } = useYOLODetection();
+  const roboflow = useRoboflowDetection();
 
   // Get available cameras on component mount
   useEffect(() => {
@@ -177,26 +109,20 @@ const LiveCameraFeed = () => {
     };
   }, [isStreaming]);
 
-  // Real YOLO detection with improved synchronization (disabled in simulation mode)
+  // Roboflow real-time detection
   useEffect(() => {
     console.log('Detection useEffect triggered:', {
       isStreaming,
-      isModelLoaded,
-      hasVideo: !!videoRef.current,
-      simulationMode
+      isConfigured: roboflow.isConfigured,
+      hasVideo: !!videoRef.current
     });
     
-    if (!isStreaming || !isModelLoaded || !videoRef.current || simulationMode) {
-      console.log('Detection loop not starting due to conditions:', {
-        isStreaming,
-        isModelLoaded,
-        hasVideo: !!videoRef.current,
-        simulationMode
-      });
+    if (!isStreaming || !roboflow.isConfigured || !videoRef.current) {
+      console.log('Detection loop not starting - requirements not met');
       return;
     }
 
-    console.log('Starting real-time detection loop...');
+    console.log('Starting Roboflow real-time detection loop...');
 
     // Keep overlay canvas in sync with video dimensions
     const syncCanvasSize = () => {
@@ -242,8 +168,8 @@ const LiveCameraFeed = () => {
         // Sync canvas size before detection
         syncCanvasSize();
         
-        console.log('Running YOLO detection...');
-        const newDetections = await detectPotholes(videoRef.current);
+        console.log('Running Roboflow detection...');
+        const newDetections = await roboflow.detectPotholes(videoRef.current);
         console.log(`Detection cycle: found ${newDetections.length} objects`);
         
         if (newDetections.length > 0) {
@@ -281,7 +207,7 @@ const LiveCameraFeed = () => {
         videoRef.current.removeEventListener('resize', syncCanvasSize);
       }
     };
-  }, [isStreaming, isModelLoaded, detectPotholes, simulationMode]);
+  }, [isStreaming, roboflow.isConfigured, roboflow.detectPotholes]);
 
   const createDetectedPothole = async (detection: DetectionBox) => {
     try {
@@ -309,7 +235,17 @@ const LiveCameraFeed = () => {
 
   const startCamera = useCallback(async () => {
     try {
-      console.log('Starting camera with simulationMode:', simulationMode);
+      if (!roboflow.isConfigured) {
+        toast({
+          title: "Model Not Configured",
+          description: "Please configure your Roboflow model first",
+          variant: "destructive"
+        });
+        setShowConfig(true);
+        return;
+      }
+
+      console.log('Starting camera with Roboflow detection');
       
       // Request location permission first
       if (locationPermission !== 'granted') {
@@ -331,13 +267,6 @@ const LiveCameraFeed = () => {
             });
           }
         );
-      }
-
-      // Load YOLO model only if not in simulation mode
-      if (!simulationMode && !isModelLoaded && !isLoading) {
-        console.log('Loading YOLO model for live detection...');
-        await loadModel();
-        console.log('YOLO model loaded:', isModelLoaded);
       }
 
       const constraints = {
@@ -363,7 +292,7 @@ const LiveCameraFeed = () => {
         variant: "destructive"
       });
     }
-  }, [isModelLoaded, isLoading, loadModel, facingMode, locationPermission, simulationMode]);
+  }, [roboflow.isConfigured, facingMode, locationPermission]);
 
   const stopCamera = useCallback(() => {
     if (videoRef.current && videoRef.current.srcObject) {
@@ -460,8 +389,8 @@ const LiveCameraFeed = () => {
               <Badge variant={isStreaming ? "default" : "secondary"}>
                 {isStreaming ? "Live" : "Offline"}
               </Badge>
-              <Badge variant={simulationMode ? "destructive" : "outline"} className="text-xs">
-                {simulationMode ? "Simulation" : "AI Detection"}
+              <Badge variant={roboflow.isConfigured ? "default" : "destructive"} className="text-xs">
+                {roboflow.isConfigured ? "Roboflow Ready" : "Not Configured"}
               </Badge>
               <Badge variant="outline" className="text-xs">
                 {facingMode === 'environment' ? 'Back' : 'Front'} Camera
@@ -511,18 +440,9 @@ const LiveCameraFeed = () => {
           
           <div className="flex flex-col sm:flex-row gap-2 mt-4">
             {!isStreaming ? (
-              <Button onClick={startCamera} disabled={isLoading && !simulationMode} className="flex-1">
-                {isLoading && !simulationMode ? (
-                  <>
-                    <Download className="h-4 w-4 mr-2 animate-spin" />
-                    Loading AI Model...
-                  </>
-                ) : (
-                  <>
-                    <Camera className="h-4 w-4 mr-2" />
-                    Start {simulationMode ? 'Simulation' : 'AI Detection'}
-                  </>
-                )}
+              <Button onClick={startCamera} className="flex-1">
+                <Camera className="h-4 w-4 mr-2" />
+                Start Detection
               </Button>
             ) : (
               <Button onClick={stopCamera} variant="destructive" className="flex-1">
@@ -531,13 +451,13 @@ const LiveCameraFeed = () => {
               </Button>
             )}
             
-            {/* Simulation Toggle */}
             <Button 
-              onClick={() => setSimulationMode(!simulationMode)} 
-              variant={simulationMode ? "default" : "outline"}
+              onClick={() => setShowConfig(true)} 
+              variant="outline"
               className="sm:w-auto"
             >
-              {simulationMode ? "🎯 Live AI" : "🎮 Simulation"}
+              <Settings className="h-4 w-4 mr-2" />
+              Model Config
             </Button>
             
             {availableCameras.length > 1 && (
@@ -559,15 +479,15 @@ const LiveCameraFeed = () => {
             )}
           </div>
 
-          {!simulationMode && isModelLoaded && (
+          {roboflow.isConfigured && (
             <div className="mt-2 text-xs text-green-600 text-center">
-              ✓ AI Model Ready for Detection
+              ✓ Roboflow Model: {roboflow.config.modelId} v{roboflow.config.version}
             </div>
           )}
           
-          {simulationMode && (
+          {!roboflow.isConfigured && (
             <div className="mt-2 text-xs text-orange-600 text-center">
-              🎮 Simulation Mode - Showing Random Detections
+              ⚠️ Configure your Roboflow model to start detection
             </div>
           )}
         </CardContent>
@@ -594,6 +514,13 @@ const LiveCameraFeed = () => {
           </CardContent>
         </Card>
       </div>
+
+      <RoboflowConfig 
+        open={showConfig}
+        onOpenChange={setShowConfig}
+        config={roboflow.config}
+        onSave={roboflow.saveConfig}
+      />
     </div>
   );
 };
