@@ -58,7 +58,11 @@ export const useRoboflowDetection = () => {
 
       if (error) {
         console.error('Roboflow detection error:', error);
-        return [];
+        throw error;
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
       }
 
       return data?.detections || [];

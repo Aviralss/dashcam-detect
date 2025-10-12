@@ -192,6 +192,15 @@ const LiveCameraFeed = () => {
         }
       } catch (error) {
         console.error('Detection error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+          toast({
+            title: "Roboflow API Error",
+            description: "403 Forbidden - Check your API key, Model ID, and Version number in Model Config",
+            variant: "destructive"
+          });
+          cancelled = true; // Stop trying if we have auth issues
+        }
       } finally {
         if (!cancelled) setTimeout(tick, cadenceMs);
       }
