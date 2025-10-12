@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface DetectionBox {
   x: number;
@@ -18,6 +19,7 @@ interface RoboflowConfig {
 
 export const useRoboflowDetection = () => {
   const [isDetecting, setIsDetecting] = useState(false);
+  const { toast } = useToast();
   const [config, setConfig] = useState<RoboflowConfig>(() => {
     const saved = localStorage.getItem('roboflow_config');
     return saved ? JSON.parse(saved) : { modelId: '', version: '' };

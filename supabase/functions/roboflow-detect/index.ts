@@ -23,19 +23,16 @@ serve(async (req) => {
       throw new Error('Model ID and version are required');
     }
 
-    // Roboflow API endpoint
-    const roboflowUrl = `https://detect.roboflow.com/${modelId}/${version}?api_key=${apiKey}`;
+    // Roboflow API endpoint - image goes in query param
+    const roboflowUrl = `https://detect.roboflow.com/${modelId}/${version}?api_key=${apiKey}&image=${encodeURIComponent(imageData)}`;
 
-    console.log('Calling Roboflow API:', roboflowUrl.replace(apiKey, '***'));
+    console.log('Calling Roboflow API:', roboflowUrl.replace(apiKey, '***').replace(imageData, '[IMAGE_DATA]'));
 
     const response = await fetch(roboflowUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify({
-        image: imageData // Base64 encoded image
-      }),
     });
 
     if (!response.ok) {
