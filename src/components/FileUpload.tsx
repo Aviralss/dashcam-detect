@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Upload as UploadIcon, Video, Image, X, FileCheck, Eye, EyeOff } from "lucide-react";
-import { useYOLODetection } from "@/hooks/useYOLODetection";
+import { useRoboflowDetection } from "@/hooks/useRoboflowDetection";
 
 interface FileUploadProps {
   accept: string;
@@ -43,14 +43,9 @@ const FileUpload: React.FC<FileUploadProps> = ({
 }) => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { isModelLoaded, isLoading, loadModel, detectPotholesInImage } = useYOLODetection();
+  const { isDetecting, isConfigured, detectPotholes } = useRoboflowDetection();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    if (accept.includes('image') && !isModelLoaded && !isLoading) {
-      loadModel();
-    }
-  }, [accept, isModelLoaded, isLoading, loadModel]);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const processImageWithDetection = async (file: File): Promise<{ processedImageUrl: string; detections: DetectionBox[] }> => {
     return new Promise((resolve, reject) => {
@@ -76,10 +71,30 @@ const FileUpload: React.FC<FileUploadProps> = ({
         ctx.drawImage(img, 0, 0);
 
         try {
-          console.log('Starting pothole detection on image...');
+          console.log('Starting Roboflow detection on image...');
           
-          // Use the dedicated image detection function
-          const detections = await detectPotholesInImage(img);
+          // Create a temporary video element for the Roboflow hook
+          const tempVideo = document.createElement('video');
+          tempVideo.width = img.naturalWidth || img.width;
+          tempVideo.height = img.naturalHeight || img.height;
+          
+          // Create a temporary canvas to capture the image as video frame
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = tempVideo.width;
+          tempCanvas.height = tempVideo.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx) {
+            tempCtx.drawImage(img, 0, 0);
+          }
+          
+          // Use the canvas as video source
+          const stream = tempCanvas.captureStream();
+          tempVideo.srcObject = stream;
+          
+          // Wait for video to be ready
+          await tempVideo.play();
+          
+          const detections = await detectPotholes(tempVideo);
           console.log(`Detection complete. Found ${detections.length} potential potholes`);
           
           // Draw detection boxes on the canvas
@@ -135,6 +150,91 @@ const FileUpload: React.FC<FileUploadProps> = ({
     });
   };
 
+  const processVideoWithDetection = async (file: File): Promise<{ processedImageUrl: string; detections: DetectionBox[] }> => {
+    return new Promise((resolve, reject) => {
+      const video = videoRef.current || document.createElement('video');
+      video.onloadeddata = async () => {
+        const canvas = canvasRef.current;
+        if (!canvas) {
+          reject(new Error('Canvas not available'));
+          return;
+        }
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
+        }
+
+        // Set canvas size to video size
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        // Seek to middle of video for detection
+        video.currentTime = video.duration / 2;
+        
+        await new Promise(resolve => {
+          video.onseeked = resolve;
+        });
+
+        // Draw video frame
+        ctx.drawImage(video, 0, 0);
+
+        try {
+          console.log('Starting Roboflow detection on video frame...');
+          
+          const detections = await detectPotholes(video);
+          console.log(`Detection complete. Found ${detections.length} potential potholes`);
+          
+          // Draw detection boxes
+          detections.forEach(detection => {
+            const color = detection.severity === 'high' ? '#ef4444' : 
+                          detection.severity === 'medium' ? '#f97316' : '#22c55e';
+            
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color + '20';
+            ctx.lineWidth = 3;
+            
+            ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
+            ctx.fillRect(detection.x, detection.y, detection.width, detection.height);
+            
+            ctx.fillStyle = color;
+            ctx.font = '14px Arial';
+            const label = `Pothole (${Math.round(detection.confidence * 100)}%)`;
+            const labelWidth = ctx.measureText(label).width;
+            
+            ctx.fillRect(detection.x, detection.y - 20, labelWidth + 8, 20);
+            ctx.fillStyle = 'white';
+            ctx.fillText(label, detection.x + 4, detection.y - 6);
+          });
+
+          canvas.toBlob((processedBlob) => {
+            if (processedBlob) {
+              const processedImageUrl = URL.createObjectURL(processedBlob);
+              resolve({ processedImageUrl, detections });
+            } else {
+              reject(new Error('Failed to create processed image'));
+            }
+          });
+          
+        } catch (error) {
+          console.error('Detection failed:', error);
+          canvas.toBlob((processedBlob) => {
+            if (processedBlob) {
+              const processedImageUrl = URL.createObjectURL(processedBlob);
+              resolve({ processedImageUrl, detections: [] });
+            } else {
+              reject(new Error('Failed to create processed image'));
+            }
+          });
+        }
+      };
+      
+      video.onerror = () => reject(new Error('Failed to load video'));
+      video.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;
 
@@ -165,18 +265,26 @@ const FileUpload: React.FC<FileUploadProps> = ({
           progress = 100;
           clearInterval(interval);
           
-          // Process image if it's an image file and model is loaded
+          // Process file with Roboflow detection if configured
           let processedData: { processedImageUrl: string; detections: DetectionBox[] } | undefined;
           
-          if (file.type.startsWith('image/') && isModelLoaded) {
+          if (isConfigured) {
             try {
               toast.info(`Processing ${file.name} for pothole detection...`);
-              processedData = await processImageWithDetection(file);
-              toast.success(`${file.name} processed successfully! Found ${processedData.detections.length} potential potholes.`);
+              if (file.type.startsWith('image/')) {
+                processedData = await processImageWithDetection(file);
+              } else if (file.type.startsWith('video/')) {
+                processedData = await processVideoWithDetection(file);
+              }
+              if (processedData) {
+                toast.success(`${file.name} processed successfully! Found ${processedData.detections.length} potential potholes.`);
+              }
             } catch (error) {
-              console.error('Image processing failed:', error);
+              console.error('Processing failed:', error);
               toast.error(`Failed to process ${file.name} for pothole detection`);
             }
+          } else {
+            toast.warning('Please configure your Roboflow model in Settings to enable detection');
           }
           
           setUploadedFiles(prev => 
@@ -193,7 +301,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
             )
           );
           
-          if (!processedData && file.type.startsWith('image/')) {
+          if (!processedData) {
             toast.success(`${file.name} uploaded successfully`);
           }
         } else {
@@ -207,7 +315,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         }
       }, 200);
     }
-  }, [maxSize, isModelLoaded, detectPotholesInImage, processImageWithDetection]);
+  }, [maxSize, isConfigured, detectPotholes]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -339,13 +447,13 @@ const FileUpload: React.FC<FileUploadProps> = ({
                   <Progress value={uploadedFile.progress} className="h-2" />
                 )}
                 
-                {uploadedFile.status === 'completed' && uploadedFile.file.type.startsWith('image/') && (
+                {uploadedFile.status === 'completed' && (uploadedFile.file.type.startsWith('image/') || uploadedFile.file.type.startsWith('video/')) && (
                   <div className="mt-3">
                     {uploadedFile.processedImageUrl ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
                           <span>
-                            {uploadedFile.showOriginal ? "Original Image" : "Processed with Pothole Detection"}
+                            {uploadedFile.showOriginal ? `Original ${uploadedFile.file.type.startsWith('video/') ? 'Video Frame' : 'Image'}` : "Processed with Roboflow Detection"}
                           </span>
                           {uploadedFile.detections && uploadedFile.detections.length > 0 && (
                             <span className="text-primary font-medium">
@@ -354,15 +462,15 @@ const FileUpload: React.FC<FileUploadProps> = ({
                           )}
                         </div>
                         <img 
-                          src={uploadedFile.showOriginal ? URL.createObjectURL(uploadedFile.file) : uploadedFile.processedImageUrl}
-                          alt={uploadedFile.showOriginal ? "Original" : "Processed"}
+                          src={uploadedFile.processedImageUrl}
+                          alt="Processed with detections"
                           className="w-full max-w-md mx-auto rounded-md border border-border"
                           style={{ maxHeight: '300px', objectFit: 'contain' }}
                         />
                       </div>
                     ) : (
                       <div className="text-center text-xs text-muted-foreground py-2">
-                        {isModelLoaded ? "Processing for pothole detection..." : "AI model loading..."}
+                        {isConfigured ? "Processing for pothole detection..." : "Configure Roboflow model in Settings"}
                       </div>
                     )}
                   </div>
@@ -373,6 +481,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         )}
         
         <canvas ref={canvasRef} style={{ display: 'none' }} />
+        <video ref={videoRef} style={{ display: 'none' }} />
       </CardContent>
     </Card>
   );
